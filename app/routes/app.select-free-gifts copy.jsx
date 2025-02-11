@@ -85,7 +85,7 @@ async function updateMetafield(productId, gifts) {
       }
     }
   `;
-  
+
   const variantReferences = gifts.map((gift) => `${gift.id}`);
   const variables = {
     input: {
@@ -142,11 +142,11 @@ export default function SelectFreeGift() {
 
       const prePopulatedVariants = giftVariantsMetafield
         ? JSON.parse(giftVariantsMetafield.node.value).map((variantId) => ({
-            id: variantId,
-            title: "Gift Variant",
-            productTitle: product.title,
-            isVariant: true,
-          }))
+          id: variantId,
+          title: "Gift Variant",
+          productTitle: product.title,
+          isVariant: true,
+        }))
         : [];
 
       return {

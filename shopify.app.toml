@@ -3,7 +3,7 @@
 client_id = "1d4a6fa7d4daa3978c0c68ad752d27f4"
 name = "MB Merchandising"
 handle = "mb-merchandising-v04"
-application_url = "https://oak-british-american-motivated.trycloudflare.com"
+application_url = "https://annotated-experiments-hi-zen.trycloudflare.com"
 embedded = true
 
 [build]
@@ -21,9 +21,9 @@ scopes = "read_products,write_products"
 
 [auth]
 redirect_urls = [
-  "https://oak-british-american-motivated.trycloudflare.com/auth/callback",
-  "https://oak-british-american-motivated.trycloudflare.com/auth/shopify/callback",
-  "https://oak-british-american-motivated.trycloudflare.com/api/auth/callback"
+  "https://annotated-experiments-hi-zen.trycloudflare.com/auth/callback",
+  "https://annotated-experiments-hi-zen.trycloudflare.com/auth/shopify/callback",
+  "https://annotated-experiments-hi-zen.trycloudflare.com/api/auth/callback"
 ]
 
 [webhooks]

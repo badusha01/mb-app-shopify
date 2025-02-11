@@ -1,23 +1,9 @@
-import prisma from "./../db.server";
-import { json } from "@remix-run/node";
-import { useLoaderData, useFetcher } from "@remix-run/react";
-import { useState, useEffect } from "react";
-import {
-  Page,
-  Card,
-  TextField,
-  Button,
-  ResourceList,
-  ResourceItem,
-  Text,
-  Tabs,
-  Modal,
-  Checkbox,
-  Layout,
-  Select,
-} from "@shopify/polaris";
-
-import SelectFreeGift from "./app.select-free-gifts";
+import prisma from './../db.server';
+import { json } from '@remix-run/node';
+import { useLoaderData, useFetcher } from '@remix-run/react';
+import { useState, useEffect } from 'react';
+import { Page, Card, TextField, Button, ResourceList, ResourceItem, Text, Tabs, Modal, Checkbox, Layout } from '@shopify/polaris';
+import SelectFreeGift from './app.select-free-gifts';
 
 export async function loader() {
   const groups = await prisma.metafieldGroup.findMany();
@@ -26,18 +12,17 @@ export async function loader() {
 
 export async function action({ request }) {
   const formData = await request.formData();
-  const name = formData.get("name");
-  const deleteId = formData.get("deleteId");
-  const groupId = formData.get("groupId");
-  const selectedMetafields = formData.get("metafields")
-  const activeTabIndex = formData.get('activeTabIndex');
+  const name = formData.get('name');
+  const deleteId = formData.get('deleteId');
+  const groupId = formData.get('groupId');
+  const selectedMetafields = formData.get('metafields');
 
   // Handle group deletion
-  if (deleteId && activeTabIndex) {
+  if (deleteId) {
     await prisma.metafieldGroup.delete({
       where: { id: deleteId },
     });
-    return json({ success: true, deletedId: deleteId, tabIndex: activeTabIndex });
+    return json({ success: true, deletedId: deleteId });
   }
 
   // Handle new group creation
@@ -58,17 +43,14 @@ export async function action({ request }) {
     return json({ success: true });
   }
 
-  return json(
-    { error: "Name, deleteId or groupId is required" },
-    { status: 400 },
-  );
+  return json({ error: "Name, deleteId or groupId is required" }, { status: 400 });
 }
 
 export default function Groups() {
-  const initialGroups = useLoaderData(); //get the loader data
+  const initialGroups = useLoaderData();//get the loader data
   const fetcher = useFetcher();
   const [metafieldGroups, setMetafieldGroups] = useState(initialGroups);
-  const [groupName, setGroupName] = useState("");
+  const [groupName, setGroupName] = useState('');
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [metafieldDefinitions, setMetafieldDefinitions] = useState([]);
@@ -80,24 +62,86 @@ export default function Groups() {
 
   useEffect(() => {
     if (fetcher.data && fetcher.data.name && fetcher.data.id) {
-      setMetafieldGroups((prevGroups) => [...prevGroups, fetcher.data]);
+      setMetafieldGroups((prevGroups) => [
+        ...prevGroups,
+        fetcher.data
+      ]);
     }
 
     if (fetcher.data && fetcher.data.deletedId) {
       setMetafieldGroups((prevGroups) =>
-        prevGroups.filter((group) => group.id !== fetcher.data.deletedId),
+        prevGroups.filter((group) => group.id !== fetcher.data.deletedId)
       );
     }
-  }, [fetcher.data]); //will be called after action submit
+  }, [fetcher.data]);//will be called after action submit
+
+  useEffect(() => {
+    if (fetcher.data && fetcher.data.name && fetcher.data.id) {
+      setMetafieldGroups((prevGroups) => [
+        ...prevGroups,
+        fetcher.data
+      ]);
+    }
+
+    if (fetcher.data && fetcher.data.success && fetcher.data.updatedGroup) {
+      setMetafieldGroups((prevGroups) => {
+        const updatedGroups = [...prevGroups];
+        const groupIndex = updatedGroups.findIndex((group) => group.id === fetcher.data.updatedGroup.id);
+
+        if (groupIndex !== -1) {
+          updatedGroups[groupIndex] = fetcher.data.updatedGroup;
+        }
+        return updatedGroups;
+      });
+      setUpdateIndex(!updateIndex); //update the tabIndex
+    }
+
+    if (fetcher.data && fetcher.data.deletedId && fetcher.data.tabIndex) {
+      setMetafieldGroups((prevGroups) =>
+        prevGroups.filter((group) => group.id !== fetcher.data.deletedId)
+      );
+
+      setSelectedMetafields((prev) => {
+        const updatedGroups = [...prev];
+        const groupIndex = fetcher.data.tabIndex
+
+        if (groupIndex !== -1) {
+          updatedGroups.splice(groupIndex, 1);
+        }
+        return updatedGroups;
+      });
+
+      setActiveTabIndex(0);
+    }
+  }, [fetcher.data]);
+
+
+  const initializeMetafields = () => {
+    if (metafieldGroups) {
+      const newSelectedMetafields = metafieldGroups.map((group) => {
+        const definitions = JSON.parse(group.metafields);
+        return definitions.map((def) => ({
+          id: def.id,
+          name: def.name,
+          namespace: def.namespace,
+          key: def.key,
+          type: def.type
+        }));
+      });
+      setSelectedMetafields(newSelectedMetafields);
+      return newSelectedMetafields;
+    }
+    return [];
+  }
 
   const handleAddGroup = (event) => {
     event.preventDefault();
-    fetcher.submit({ name: groupName }, { method: "post" });
-    setGroupName("");
+    fetcher.submit({ name: groupName }, { method: 'post' });
+    setGroupName('');
   };
 
   const handleDeleteGroup = (id) => {
-    fetcher.submit({ deleteId: id.toString() }, { method: "post" });
+    fetcher.submit({ deleteId: id.toString() }, { method: 'post' });
   };
 
   const tabs = metafieldGroups.map((group) => ({
@@ -107,6 +151,7 @@ export default function Groups() {
 
   const handleTabChange = (index) => {
     setActiveTabIndex(index);
+    setTempSelectedMetafields(selectedMetafields[index]);
   };
 
   // We need to use the groupId
@@ -138,110 +183,89 @@ export default function Groups() {
     });
 
     const data = await response.json();
-    const definitions = data.data.metafieldDefinitions.edges.map((edge) => ({
+    const definitions = data.data.metafieldDefinitions.edges.map(edge => ({
       id: edge.node.id,
       key: edge.node.key,
       namespace: edge.node.namespace,
       type: edge.node.type,
-      name: edge.node.name,
+      name: edge.node.name
     }));
 
     setMetafieldDefinitions(definitions);
     setModalOpen(true);
   };
 
-  // const handleCheckboxChange = (id) => {
-  //   setSelectedMetafields((prev) => {
-  //     // Create a copy of the previous state
-  //     const updated = [...prev];
-
-  //     // Ensure the array for the current tab exists
-  //     if (!updated[activeTabIndex]) {
-  //       updated[activeTabIndex] = [];
-  //     }
-
-  //     // Toggle the checkbox selection for the current tab
-  //     updated[activeTabIndex] = updated[activeTabIndex].includes(id)
-  //       ? updated[activeTabIndex].filter((item) => item !== id)
-  //       : [...updated[activeTabIndex], id];
-  //     console.log("Updated selectedMetafields:", updated);
-
-  //     return updated;
-  //   });
-  // };
 
   const handleCheckboxChange = (definition) => {
-    setTempSelectedMetafields((prev) => {
-      const updated = [...prev];
-
-      if (updated.map((data) => data.id).includes(definition.id)) {
-        return updated.filter((item) => item.id !== definition.id);
-      } else {
-        return [...updated, definition];
-      }
-    });
-  };
-
-
-
-
-  // const handleAssign = () => {
-  //   const metafieldData = selectedMetafields[activeTabIndex].map((id) => {
-  //     // Find the definition corresponding to the selected metafield ID
-  //     const definition = metafieldDefinitions.find((def) => def.id === id);
-  //     return {
-  //       id, // Metafield ID
-  //       namespace: definition?.namespace || "", // Namespace from the definition
-  //       key: definition?.key || "", // Key from the definition
-  //       type: {
-  //         valueType: definition?.type?.valueType || "", // Value type from the definition
-  //         name: definition?.type?.name
-  //       },
-  //     };
-  //   });
-
-  //   // Submit the selected metafields to be saved
-  //   fetcher.submit(
-  //     {
-  //       metafields: JSON.stringify(metafieldData || []),
-  //       groupId: metafieldGroups[activeTabIndex].id,
-  //     },
-  //     { method: 'post' }
-  //   );
-
-  //   setModalOpen(false);
-  // };
-
-  const handleAssign = () => {
     setSelectedMetafields((prev) => {
+
       const updated = [...prev];
-      updated[activeTabIndex] = tempSelectedMetafields;
+
+      // Ensure the array for the current tab exists
+      if (!updated[activeTabIndex]) {
+        updated[activeTabIndex] = [];
+      }
+
+      if (updated[activeTabIndex].map(data => data.id).includes(definition.id)) {
+        updated[activeTabIndex] = updated[activeTabIndex].filter((item) => item.id !== definition.id);
+      } else {
+        updated[activeTabIndex] = [...updated[activeTabIndex], {
+          id: definition.id,
+          name: definition.name,
+          namespace: definition.namespace,
+          key: definition.key,
+          type: definition.type
+        }]
+      }
       return updated;
     });
+  };
 
+
+
+
+  const handleAssign = () => {
+    const metafieldData = selectedMetafields[activeTabIndex].map((data) => {
+      // Find the definition corresponding to the selected metafield ID
+      const definition = metafieldDefinitions.find((def) => def.id === data.id);
+      return {
+        id: data.id, // Metafield ID
+        name: definition?.name,
+        namespace: definition?.namespace || "", // Namespace from the definition
+        key: definition?.key || "", // Key from the definition
+        type: { // const handleCheckboxChange = (definition) => {
+          valueType: definition?.type?.valueType || "",
+          name: definition?.type?.name
+        },
+      }
+    });
+
+    // Submit the selected metafields to be saved
     fetcher.submit(
       {
-        metafields: JSON.stringify(tempSelectedMetafields),
+        metafields: JSON.stringify(metafieldData),
         groupId: metafieldGroups[activeTabIndex].id,
       },
-      { method: "post" },
+      { method: 'post' }
     );
 
+    setSelectedMetafields((prev) => {
+      const updated = [...prev]
+      if (!updated[activeTabIndex]) {
+        updated[activeTabIndex] = []
+      }
+      updated[activeTabIndex] = metafieldData.map(data => ({
+        id: data.id,
+        name: data.name,
+        namespace: data.namespace,
+        key: data.key,
+        type: data.type
+      }))
+      return updated
+    })
+    setTempSelectedMetafields(selectedMetafields[activeTabIndex]);
     setModalOpen(false);
-    setTempSelectedMetafields([]); // Reset temporary selections
   };
-
-
-
-  // const handleModalClose = () => {
-  //   setModalOpen(false);
-  // };
-
-  const handleModalClose = () => {
-    setModalOpen(false);
-    // setTempSelectedMetafields([]); // Reset temporary selections
-  };
-
 
 
   return (
@@ -262,42 +286,40 @@ export default function Groups() {
       </Card>
 
       <Card sectioned title="Defined Metafield Groups">
-        <Tabs tabs={tabs} selected={activeTabIndex} onSelect={handleTabChange}>
-          {metafieldGroups.map((group, index) => (
+        <Tabs
+          tabs={tabs}
+          selected={activeTabIndex}
+          onSelect={handleTabChange}
+        >
+          {metafieldGroups?.map((group, index) => (
             <div key={group.id}>
               {activeTabIndex === index && (
                 <div>
                   {/* Container for the buttons at the top */}
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: "16px",
-                    }}
-                  >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                     <div>
                       <Button onClick={() => handleAssignMetaFields(group.id)}>
                         Assign Meta Fields
                       </Button>
-                      <Button
-                        destructive
-                        onClick={() => handleDeleteGroup(group.id)}
-                        style={{ marginLeft: "8px" }}
-                      >
+                      <Button destructive onClick={() => handleDeleteGroup(group.id)} style={{ marginLeft: '8px' }}>
                         Delete
                       </Button>
-
                     </div>
                   </div>
+                  {/* Full width product panel */}
+                  {/* <SelectFreeGift groupId={group.id} metafieldDefinitions={selectedMetafields} activeTabIndex={activeTabIndex} /> */}
 
-                  <SelectFreeGift
+                  <SelectFreeGift groupId={group.id} associatedMetafields={tempSelectedMetafields} tabIndex={updateIndex} />
+
+
+                  {/* <SelectFreeGift
                     groupId={group.id}
-                    metafieldDefinitions={selectedMetafields[activeTabIndex] || []}
-                    associatedMetafields={tempSelectedMetafields}
-                    activeTabIndex={activeTabIndex}
-                    currentGroupId={group.id}
-                  />
+                    metafieldDefinitions={
+                      selectedMetafields[index] || [] // Pass only assigned metafields
+                    }
+                  /> */}
+
+
                 </div>
               )}
             </div>
@@ -305,46 +327,38 @@ export default function Groups() {
         </Tabs>
       </Card>
 
+
+
       <Modal
         open={modalOpen}
-        onClose={handleModalClose}
+        onClose={() => {
+          initializeMetafields()
+          setModalOpen(false)
+        }}
         title="Assign Metafields"
         primaryAction={{
-          content: "Assign",
+          content: 'Assign',
           onAction: handleAssign,
         }}
       >
         <Modal.Section>
           <Card sectioned>
-            <Text variant="headingMd" as="h2">
-              Assign Metafields
-            </Text>
+            <Text variant="headingMd" as="h2">Assign Metafields</Text>
             <Layout>
               {metafieldDefinitions.map((definition) => (
                 <Layout.Section key={definition.id} oneHalf>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      marginBottom: "8px",
-                    }}
-                  >
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+
                     {/* <Checkbox
                       label={definition.key}
                       checked={selectedMetafields[activeTabIndex]?.includes(definition.id)}
                       onChange={() => handleCheckboxChange(definition.id)}
                     /> */}
-
-
-
                     <Checkbox
                       label={definition.name}
-                      checked={tempSelectedMetafields
-                        .map((data) => data.id)
-                        .includes(definition.id)}
+                      checked={selectedMetafields[activeTabIndex]?.map(def => def.id).includes(definition.id)}
                       onChange={() => handleCheckboxChange(definition)}
                     />
-                    <Text variant="bodySm" style={{ marginLeft: '8px' }}>{`Type: ${definition.type?.name}`}</Text>
                     {/*
                     [1,2,3,4].includes(1)
                     [{id:1,name:"fkldj",key:434},{id:2,name:"fkldj",key:434},{id:3,name:"fkldj",key:434},{id:4,name:"fkldj",key:434}],map(data => data.id.includes(1)) */}

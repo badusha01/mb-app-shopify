@@ -67,7 +67,7 @@ function fetchProducts(searchTerm = "", afterCursor = null) {
   }).then((res) => res.json());
 }
 
-async function updateMetafield(productId, gifts) {
+async function updateMetafield(productId, gifts, metafieldData) {
   const mutation = `
     mutation updateProductMetafield($input: ProductInput!) {
       productUpdate(input: $input) {
@@ -92,21 +92,39 @@ async function updateMetafield(productId, gifts) {
     }
   `;
 
-  const variantReferences = gifts.map((gift) => `${gift.id}`);
+  // const variantReferences = gifts.map((gift) => `${gift.id}`);
+  // const variables = {
+  //   input: {
+  //     id: productId,
+  //     metafields: [
+  //       {
+  //         namespace: "custom",
+  //         key: "giftvariants",
+  //         value: JSON.stringify(variantReferences),
+  //         type: "list.variant_reference",
+  //       },
+  //     ],
+  //   },
+  // };
+
+
+  const variantReferences = metafieldData.type.name.includes('list') ?
+    gifts.map((gift) => `${gift.id}`) :
+    gifts[0].id;
+
   const variables = {
     input: {
       id: productId,
       metafields: [
         {
-          namespace: "custom",
-          key: "giftvariants",
-          value: JSON.stringify(variantReferences),
-          type: "list.variant_reference",
+          namespace: metafieldData.namespace,
+          key: metafieldData.key,
+          value: metafieldData.type.name.includes('list') ? JSON.stringify(variantReferences) : variantReferences,
+          type: metafieldData.type.name,
         },
       ],
     },
-  };
-
+  }
 
 
   try {
@@ -132,15 +150,77 @@ async function updateMetafield(productId, gifts) {
   }
 }
 
+
+const updateProductMetafield = async (productId, value, activeMetafieldData) => {
+  const query = `
+    mutation updateProductMetafield($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product {
+          id
+          metafields(first: 10) {
+            edges {
+              node {
+                id
+                namespace
+                key
+                value
+                type
+              }
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const variables = {
+    input: {
+      id: productId,
+      metafields: [
+        {
+          namespace: activeMetafieldData.namespace,
+          key: activeMetafieldData.key,
+          value: value,
+          type: activeMetafieldData.type.name
+        },
+      ],
+    },
+  }
+
+  const response = await fetch("shopify:admin/api/graphql.json", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  const responseData = await response.json();
+  // console.log("ResponseData:", responseData);
+
+  if (responseData.errors) {
+    shopify.toast.show(`Error updating metafield: ${responseData.errors}`);
+    console.log("Error updating metafield:", responseData.errors);
+  } else if (responseData.data.productUpdate.userErrors.length > 0) {
+    shopify.toast.show("User errors");
+  } else {
+    shopify.toast.show("Metafield updated successfully");
+  }
+
+  return true;
+
+}
+
 export default function SelectFreeGift({
   groupId,
-  metafieldDefinitions,
   activeTabIndex,
   associatedMetafields
 }) {
   const app = useAppBridge();
   const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [selectedProductsByRow, setSelectedProductsByRow] = useState({});
   const [initialProductsByRow, setInitialProductsByRow] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
@@ -149,16 +229,106 @@ export default function SelectFreeGift({
   const [hasNextPage, setHasNextPage] = useState(false);
   const [value, setValue] = useState("");
   const [selected, setSelected] = useState("");
+  const [saveButton, setSaveButton] = useState({});
+  const [disabledSaveButton, setDisabledSaveButton] = useState({});
+  const [textInput, setTextInput] = useState({});
+
+  // const loadProducts = async (afterCursor = null, append = false) => {
+  //   setLoading(true);
+  //   const data = await fetchProducts(searchTerm, afterCursor);
+  //   const formattedProducts = data.data.products.edges.map((edge) => {
+  //     const product = edge.node;
+
+  //     const giftVariantsMetafield = product.metafields?.edges?.find(
+  //       (metafield) => metafield.node.key === "recommendations"
+  //     );
+  //     const prePopulatedVariants = giftVariantsMetafield
+  //       ? JSON.parse(giftVariantsMetafield.node.value).map((variantId) => ({
+  //         id: variantId,
+  //         title: "Gift Variant",
+  //         productTitle: product.title,
+  //         isVariant: true,
+  //       }))
+  //       : [];
+
+
+  //     return {
+  //       id: product.id,
+  //       title: product.title,
+  //       variants: product.variants.edges.map((variant) => ({
+  //         id: variant.node.id,
+  //         title: variant.node.title,
+  //         image: variant.node.image ? variant.node.image.originalSrc : null,
+  //       })),
+  //       prePopulatedVariants,
+  //       metafields: product.metafields.nodes,
+  //       cursor: edge.cursor,
+  //     };
+  //   });
+
+  //   console.log("Formatted Products: ", formattedProducts);
+
+  //   setProducts((prevProducts) =>
+  //     (append ? [...prevProducts, ...formattedProducts] : formattedProducts));
+
+  //   const newTextInputValues = {};
+  //   formattedProducts.forEach((product) => {
+  //     product.metafields.forEach((metafield) => {
+  //       if (!newTextInputValues[metafield.key]) {
+  //         newTextInputValues[metafield.key] = {};
+  //       }
+  //       newTextInputValues[metafield.key][product.id] = metafield.value || "";
+  //     });
+  //   });
+
+  //   const initialSelections = {};
+  //   const initialSaveButtonStates = {};
+  //   const initialSaveButtonLoading = {};
+
+
+  //   formattedProducts.forEach((product) => {
+  //     initialSelections[product.id] = product.prePopulatedVariants;
+  //     initialSaveButtonStates[product.id] = true;
+  //     initialSaveButtonLoading[product.id] = false;
+  //   });
+
+  //   setSelectedProductsByRow((prev) =>
+  //     append ? { ...prev, ...initialSelections } : initialSelections,
+  //   );
+
+  //   setTextInput((prev) => append ? { ...prev, ...newTextInputValues } : newTextInputValues)
+
+  //   setInitialProductsByRow((prev) =>
+  //     append ? { ...prev, ...initialSelections } : initialSelections,
+  //   );
+  //   setDisabledSaveButton((prev) => (append ? { ...prev, ...initialSaveButtonStates } : initialSaveButtonStates));
+  //   setSaveButton((prev) => (append ? { ...prev, ...initialSaveButtonLoading } : initialSaveButtonLoading));
+
+  //   setHasNextPage(data.data.products.pageInfo.hasNextPage);
+  //   setNextCursor(
+  //     data.data.products.pageInfo.hasNextPage
+  //       ? data.data.products.edges[data.data.products.edges.length - 1].cursor
+  //       : null);
+  //   setLoading(false);
+  // };
 
   const loadProducts = async (afterCursor = null, append = false) => {
     setLoading(true);
     const data = await fetchProducts(searchTerm, afterCursor);
+
+    // Check if data and its nested properties exist
+    // if (!data || !data.data || !data.data.products || !data.data.products.edges) {
+    //   console.error("Error: Unexpected API response format", data);
+    //   setLoading(false);
+    //   return;
+    // }
+
     const formattedProducts = data.data.products.edges.map((edge) => {
       const product = edge.node;
-
       const giftVariantsMetafield = product.metafields?.edges?.find(
-        (metafield) => metafield.node.key === "giftvariants",
+        (metafield) => metafield.node.key === "recommendations"
       );
+
       const prePopulatedVariants = giftVariantsMetafield
         ? JSON.parse(giftVariantsMetafield.node.value).map((variantId) => ({
           id: variantId,
@@ -167,7 +337,6 @@ export default function SelectFreeGift({
           isVariant: true,
         }))
         : [];
-
 
       return {
         id: product.id,
@@ -178,40 +347,57 @@ export default function SelectFreeGift({
           image: variant.node.image ? variant.node.image.originalSrc : null,
         })),
         prePopulatedVariants,
+        metafields: product.metafields?.edges?.map((m) => m.node) || [], // Ensure metafields is always an array
         cursor: edge.cursor,
       };
     });
 
 
-    setProducts((prevProducts) =>
-      append ? [...prevProducts, ...formattedProducts] : formattedProducts,
-    );
+    // Ensure formattedProducts is always an array before calling forEach
+    // if (!Array.isArray(formattedProducts)) {
+    //   console.error("Error: formattedProducts is not an array", formattedProducts);
+    //   setLoading(false);
+    //   return;
+    // }
 
-    const initialSelections = {};
-
+    const newTextInputValues = {};
     formattedProducts.forEach((product) => {
-      initialSelections[product.id] = product.prePopulatedVariants;
+      product.metafields.forEach((metafield) => {
+        if (!newTextInputValues[metafield.key]) {
+          newTextInputValues[metafield.key] = {};
+        }
+        newTextInputValues[metafield.key][product.id] = metafield.value || "";
+      });
     });
 
-    setSelectedProductsByRow((prev) =>
-      append ? { ...prev, ...initialSelections } : initialSelections,
+    setProducts((prevProducts) =>
+      append ? [...prevProducts, ...formattedProducts] : formattedProducts
     );
-    setInitialProductsByRow((prev) =>
-      append ? { ...prev, ...initialSelections } : initialSelections,
+
+    setTextInput((prev) =>
+      append ? { ...prev, ...newTextInputValues } : newTextInputValues
     );
 
     setHasNextPage(data.data.products.pageInfo.hasNextPage);
     setNextCursor(
       data.data.products.pageInfo.hasNextPage
         ? data.data.products.edges[data.data.products.edges.length - 1].cursor
-        : null,
+        : null
     );
     setLoading(false);
   };
 
+
   useEffect(() => {
     loadProducts();
   }, [searchTerm]);
+
+
+  useEffect(() => {
+    if (associatedMetafields && associatedMetafields.length > 0) {
+      setSelected(associatedMetafields[0].key);
+    }
+  }, [associatedMetafields]);
 
   const loadNextPage = () => {
     if (hasNextPage) loadProducts(nextCursor, true);
@@ -225,10 +411,11 @@ export default function SelectFreeGift({
     setValue(value);
   };
 
-  console.log("SELECTED:", selected)
+  console.log("SELECTED:", selected);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    const activeMetafieldData = associatedMetafields.find(metafield => metafield.key == selected);
     for (const productId in selectedProductsByRow) {
       const currentSelections = selectedProductsByRow[productId];
       const initialSelections = initialProductsByRow[productId] || [];
@@ -240,17 +427,18 @@ export default function SelectFreeGift({
           id: item.id,
           title: item.title,
         }));
-        await updateMetafield(productId, selectedGifts);
+        await updateMetafield(productId, selectedGifts, activeMetafieldData);
       }
     }
     setHasChanges(false);
     console.log("Metafields updated for changed products.");
   };
-  const openResourcePicker = async (productId) => {
+  const openResourcePicker = async (productId, metafieldType) => {
     const pickerResult = await app.resourcePicker({
       type: "product",
-      showVariants: true,
-      multiple: selected === "upgradeProduct" ? false : true,
+      showVariants: false,
+      multiple: metafieldType === "list.product_reference" || metafieldType === "product_reference" ?
+        metafieldType === "list.product_reference" : false
     });
 
     if (
@@ -262,28 +450,28 @@ export default function SelectFreeGift({
         const existingSelections = prev[productId] || [];
 
         const newSelections = pickerResult.selection.flatMap((item) => {
-          if (item.variants && item.variants.length > 0) {
-            return item.variants.map((variant) => ({
-              id: variant.id,
-              title: variant.title,
-              image: variant.image ? variant.image.src : null,
-              productTitle: item.title,
-              isVariant: true,
-            }));
-          } else {
-            return {
-              id: item.id,
-              title: item.title,
-              image: item.images[0]?.src,
-              isVariant: false,
-            };
-          }
+          // if (item.variants && item.variants.length > 0) {
+          //   return item.variants.map((variant) => ({
+          //     id: variant.id,
+          //     title: variant.title,
+          //     image: variant.image ? variant.image.src : null,
+          //     productTitle: item.title,
+          //     isVariant: true,
+          //   }));
+          // } else {
+          return {
+            id: item.id,
+            title: item.title,
+            image: item.images[0]?.src,
+            isVariant: false,
+          };
+          // }
         });
 
 
         const combinedSelections = [...existingSelections, ...newSelections];
         const uniqueSelections = Array.from(
-          new Map(combinedSelections.map((item) => [item.id, item])).values(),
+          new Map(combinedSelections.map((item) => [item.id, item])).values()
         );
 
 
@@ -307,6 +495,42 @@ export default function SelectFreeGift({
         [productId]: updatedSelections,
       };
     });
+  };
+
+  const toggleSaveButtonState = (id, state) => {
+    setDisabledSaveButton((prev) => ({
+      ...prev, [id]: state
+    }))
+  }
+
+  const toggleSaveButtonLoading = (id, state) => {
+    setSaveButton((prev) => ({
+      ...prev, [id]: state,
+    }))
+  }
+
+  const handleTextChange = (id, textValue, key) => {
+    toggleSaveButtonState(id, false);
+    setTextInput((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || {}),
+        [id]: textValue,
+      }
+    }))
+  };
+
+  const handleSaveDescription = async (productId, key) => {
+    toggleSaveButtonLoading(productId, true);
+    const textFieldValue = textInput[key][productId] || '';
+    const activeMetafieldData = associatedMetafields.find(metafield => metafield.key === key);
+    const result = await updateProductMetafield(productId, textFieldValue, activeMetafieldData);
+    toggleSaveButtonState(productId, result);
+    toggleSaveButtonLoading(productId, !result);
+  }
+
+  const handleCancel = (id) => {
+
   };
 
   const handleSelectChange = (value) => {
@@ -336,9 +560,6 @@ export default function SelectFreeGift({
   // ) : (
   //   undefined
   // )
-  const tabBtn = activeTabIndex;
-
-  console.log("metafieldDefinitions", metafieldDefinitions);
   return (
     <Frame>
 
@@ -355,7 +576,7 @@ export default function SelectFreeGift({
 
 
 
-      <Page>
+      <Page title="Configure Free Gifts">
         {/* {metafieldDefinitions && metafieldDefinitions[activeTabIndex]?.length > 0 ? (
           <Select
             options={optionsReccomendation}
@@ -370,7 +591,153 @@ export default function SelectFreeGift({
           />
         )} */}
 
+        {associatedMetafields &&
+          <>
+            <Select
+              label="Select Metafield"
+              options={options}
+              onChange={handleSelectChange}
+              value={selected}
+            />
+            <TextField
+              label="Search Products"
+              value={searchTerm}
+              onChange={handleSearchChange}
+              placeholder="Search by product title"
+              clearButton
+              onClearButtonClick={() => setSearchTerm("")}
+            />
 
+            <form onSubmit={handleSubmit}>
+              <Card>
+                {loading ? (
+                  <Spinner accessibilityLabel="Loading products" size="large" />
+                ) : (
+                  <ResourceList
+                    resourceName={{ singular: "product", plural: "products" }}
+                    items={products}
+                    renderItem={(item) => {
+                      const { id, title } = item;
+                      const selectedItems = selectedProductsByRow[id] || [];
+                      const metafieldKey = selected;
+                      const selectedMetafield = options.find((option) => option.value === selected);
+                      console.log("Selected Metafield: ", selectedMetafield);
+                      const inputValue = textInput[metafieldKey]?.[id] || "";
+
+                      return (
+                        <ResourceItem
+                          id={id}
+                          accessibilityLabel={`View details for ${title}`}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "10px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Text as="span" variant="bodyMd" fontWeight="bold">
+                                {title}
+                              </Text>
+                              {selectedMetafield?.type?.name == "single_line_text_field" || selectedMetafield?.type?.name == "multi_line_text_field" ? (
+                                <>
+                                  <TextField
+                                    label={`Enter ${selectedMetafield.label}`}
+                                    value={inputValue}
+                                    onChange={(val) => handleTextChange(id, val, metafieldKey)}
+                                    multiline={selectedMetafield?.type?.name === "multi_line_text_field" ? 5 : undefined}
+                                    autoComplete="off"
+                                  />
+                                  <ButtonGroup>
+                                    {/* <Button onClick={() => handleCancel(id)}>Cancel</Button> */}
+                                    <Button
+                                      variant="primary"
+                                      onClick={() => handleSaveDescription(id, metafieldKey)}
+                                      disabled={disabledSaveButton[id]}
+                                      loading={saveButton[id]}
+                                    >
+                                      Save
+                                    </Button>
+                                  </ButtonGroup>
+                                </>
+                              ) : (
+                                <Button onClick={() => openResourcePicker(id, selectedMetafield?.type?.name)}>Select Product/Variant</Button>
+                              )}
+                            </div>
+                            {selectedItems.length > 0 && (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  padding: "8px",
+                                  border: "1px solid #d3d3d3",
+                                  borderRadius: "4px",
+                                  backgroundColor: "#f6f6f7",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                {console.log("Selected Items", selectedItems)}
+                                {selectedItems.map((item) => (
+                                  <div
+                                    key={item.id}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      padding: "3px 6px",
+                                      borderRadius: "3px",
+                                      backgroundColor: "#e1e3e5",
+                                      margin: "2px",
+                                    }}
+                                  >
+                                    <Thumbnail
+                                      source={item.image || ""}
+                                      alt={item.title}
+                                      size="small"
+                                    />
+                                    <Text
+                                      as="span"
+                                      variant="bodySm"
+                                      style={{ marginLeft: "8px" }}
+                                    >
+                                      {item.isVariant
+                                        ? `${item.productTitle} - ${item.title}`
+                                        : item.title}
+                                    </Text>
+                                    <Button
+                                      plain
+                                      destructive
+                                      onClick={() => removeProduct(id, item.id)}
+                                      style={{ marginLeft: "8px" }}
+                                    >
+                                      ×
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </ResourceItem>
+                      );
+                    }}
+                  />
+                )}
+              </Card>
+            </form>
+            {hasNextPage && !loading && (
+              <Button onClick={loadNextPage} fullWidth>
+                Load more products
+              </Button>
+            )}
+
+          </>}
       </Page>
 
 
@@ -380,163 +747,26 @@ export default function SelectFreeGift({
         }}
       ></div>
 
-      <TextField
-        value={searchTerm}
-        onChange={handleSearchChange}
-        placeholder="Search by product title"
-        clearButton
-        onClearButtonClick={() => setSearchTerm("")}
-      />
-
-      <form onSubmit={handleSubmit}>
-        <Card>
-          {loading ? (
-            <Spinner accessibilityLabel="Loading products" size="large" />
-          ) : (
-            <ResourceList
-              resourceName={{ singular: "product", plural: "products" }}
-              items={products}
-              renderItem={(item) => {
-                const { id, title } = item;
-                const selectedItems = selectedProductsByRow[id] || [];
-
-                return (
-                  <ResourceItem
-                    id={id}
-                    accessibilityLabel={`View details for ${title}`}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "10px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <Text as="span" variant="bodyMd" fontWeight="bold">
-                          {title}
-                        </Text>
 
 
-                        {tabBtn ? (
-                          <Button onClick={() => openResourcePicker(id)}>
-                            Select Product/Variant
-                          </Button>
-                        ) : (
-                          <TextField
-                            label="Description"
-                            value={value}
-                            onChange={handleChange}
-                            autoComplete="off"
-                          />
-                        )}
-
-                        {tabBtn ? (
-                          null
-                        ) : (
-                          <ButtonGroup>
-                            <Button>Cancel</Button>
-                            <Button variant="primary">Save</Button>
-                          </ButtonGroup>
-                        )}
-
-
-                        {/* <TextField
-                          label="Enter Description"
-                          value={value}
-                          onChange={handleChange}
-                          autoComplete="off"
-                        /> */}
-
-                      </div>
-                      {selectedItems.length > 0 && (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            padding: "8px",
-                            border: "1px solid #d3d3d3",
-                            borderRadius: "4px",
-                            backgroundColor: "#f6f6f7",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          {console.log("Selected Items", selectedItems)}
-                          {selectedItems.map((item) => (
-                            <div
-                              key={item.id}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                padding: "3px 6px",
-                                borderRadius: "3px",
-                                backgroundColor: "#e1e3e5",
-                                margin: "2px",
-                              }}
-                            >
-                              <Thumbnail
-                                source={item.image || ""}
-                                alt={item.title}
-                                size="small"
-                              />
-                              <Text
-                                as="span"
-                                variant="bodySm"
-                                style={{ marginLeft: "8px" }}
-                              >
-                                {item.isVariant
-                                  ? `${item.productTitle} - ${item.title}`
-                                  : item.title}
-                              </Text>
-                              <Button
-                                plain
-                                destructive
-                                onClick={() => removeProduct(id, item.id)}
-                                style={{ marginLeft: "8px" }}
-                              >
-                                ×
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </ResourceItem>
-                );
-              }}
-            />
-          )}
-        </Card>
-      </form>
-      {hasNextPage && !loading && (
-        <Button onClick={loadNextPage} fullWidth>
-          Load more products
-        </Button>
-      )}
-
-      {hasChanges && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "0",
-            width: "100%",
-            backgroundColor: "#6fe8c0",
-            padding: "10px",
-            borderTop: "1px solid #d3d3d3",
-          }}
-        >
-          <Button primary onClick={handleSubmit}>
-            Save Changes
-          </Button>
-        </div>
-      )}
-    </Frame>
+      {
+        hasChanges && (
+          <div
+            style={{
+              position: "fixed",
+              bottom: "0",
+              width: "100%",
+              backgroundColor: "#6fe8c0",
+              padding: "10px",
+              borderTop: "1px solid #d3d3d3",
+            }}
+          >
+            <Button primary onClick={handleSubmit}>
+              Save Changes
+            </Button>
+          </div>
+        )
+      }
+    </Frame >
   );
 }
